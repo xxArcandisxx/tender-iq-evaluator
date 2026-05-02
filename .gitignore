@@ -1,0 +1,14 @@
+# --- Security & Keys ---
+.env
+
+# --- Virtual Environments ---
+venv/
+env/
+.venv/
+
+# --- Python Cache ---
+__pycache__/
+*.pyc
+
+# --- VS Code Settings ---
+.vscode/

@@ -1,0 +1,18 @@
+# --- AI & Environment ---
+groq
+python-dotenv
+
+# --- Database ---
+supabase
+
+# --- Backend API ---
+fastapi
+uvicorn
+pydantic
+python-multipart
+
+# --- Frontend Dashboard ---
+streamlit
+
+# --- PDF Processing ---
+PyMuPDF
