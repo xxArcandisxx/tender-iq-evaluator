@@ -39,6 +39,7 @@ if st.session_state['bidder_list']:
 
 # --- ACTION BUTTON ---
 if tender_file and len(st.session_state['bidder_list']) > 0:
+    # Save the Tender file to disk temporarily
     with open("temp_tender.pdf", "wb") as f: f.write(tender_file.getbuffer())
     
     st.sidebar.success(f"Tender and {len(st.session_state['bidder_list'])} Bidder(s) ready!")
@@ -50,6 +51,7 @@ if tender_file and len(st.session_state['bidder_list']) > 0:
             bidder_name = b_file.name
             temp_bid_path = f"temp_bid_{idx}.pdf"
             
+            # Save the Bidder file to disk temporarily
             with open(temp_bid_path, "wb") as f: f.write(b_file.getbuffer())
             
             with st.spinner(f"Analyzing {bidder_name}..."):
@@ -59,6 +61,10 @@ if tender_file and len(st.session_state['bidder_list']) > 0:
                 
                 # Protect the free tier limit: pause for 2 seconds between documents
                 time.sleep(2)
+                
+                # --- NEW: Cleanup the temporary bidder file from the hard drive ---
+                if os.path.exists(temp_bid_path):
+                    os.remove(temp_bid_path)
                 
                 # Calculate scores
                 total_score = sum(r.get('score', 0) for r in eval_results)
@@ -74,6 +80,10 @@ if tender_file and len(st.session_state['bidder_list']) > 0:
                     "Details": eval_results
                 })
         
+        # --- NEW: Cleanup the temporary tender file after all bidders are processed ---
+        if os.path.exists("temp_tender.pdf"):
+            os.remove("temp_tender.pdf")
+            
         # Sort by highest score for the leaderboard
         all_bidders_data = sorted(all_bidders_data, key=lambda x: x["Raw Score"], reverse=True)
         st.session_state['leaderboard'] = all_bidders_data

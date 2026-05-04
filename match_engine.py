@@ -54,7 +54,6 @@ def evaluate_bidder_against_rules(tender_pdf_path, bidder_pdf_path):
 
 if __name__ == "__main__":
     result = evaluate_bidder_against_rules("sample_tender.pdf", "sample_bid.pdf")
-    
     parsed_json = json.loads(result)
     print("\n\n=======================================================")
     print("              FINAL BIDDER EVALUATION REPORT             ")
