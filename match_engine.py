@@ -10,7 +10,6 @@ client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
 def evaluate_bidder_against_rules(tender_pdf_path, bidder_pdf_path):
     print("1. Extracting rules from Tender Document...")
-    # This calls your original script!
     tender_rules_json = extract_verifiable_rules(tender_pdf_path)
     
     print("\n2. Extracting text from Bidder Submission...")
@@ -29,7 +28,7 @@ def evaluate_bidder_against_rules(tender_pdf_path, bidder_pdf_path):
     
     Instructions:
     Compare the Bidder Document against EVERY rule in the Tender Rules.
-    For each rule, determine if the bidder Passed, Failed, or needs to be Flagged (if the data is ambiguous).
+    For each rule, determine if the bidder Passed, Failed, or needs to be Flagged.
     
     You MUST output valid JSON only. Output a JSON object with a key "evaluation_results" containing an array. 
     Each object in the array must have:
@@ -37,6 +36,7 @@ def evaluate_bidder_against_rules(tender_pdf_path, bidder_pdf_path):
     - "tender_requirement": what the tender asked for
     - "bidder_submission": what the bidder actually provided (or "Not found")
     - "status": "Pass", "Fail", or "Flagged"
+    - "score": An integer from 1 to 5. (1 = Failed completely, 3 = Met minimum/Flagged, 5 = Exceeded requirement flawlessly).
     - "reasoning": A one-sentence explanation of why they passed/failed
     """
 
