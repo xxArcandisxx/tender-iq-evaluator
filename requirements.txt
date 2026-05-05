@@ -16,3 +16,5 @@ streamlit
 
 # --- PDF Processing ---
 PyMuPDF
+easyocr
+opencv-python-headless
