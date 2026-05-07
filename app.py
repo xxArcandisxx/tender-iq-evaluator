@@ -37,36 +37,24 @@ if st.session_state['bidder_list']:
         st.session_state['bidder_list'] = []
         st.rerun()
 
-# --- ACTION BUTTON ---
+# --- ACTION BUTTON (MANUAL UPLOAD) ---
 if tender_file and len(st.session_state['bidder_list']) > 0:
-    # Save the Tender file to disk temporarily
     with open("temp_tender.pdf", "wb") as f: f.write(tender_file.getbuffer())
-    
     st.sidebar.success(f"Tender and {len(st.session_state['bidder_list'])} Bidder(s) ready!")
     
     if st.sidebar.button("Run Smart Multi-Evaluation", type="primary"):
         all_bidders_data = []
-        
         for idx, b_file in enumerate(st.session_state['bidder_list']):
             bidder_name = b_file.name
             temp_bid_path = f"temp_bid_{idx}.pdf"
-            
-            # Save the Bidder file to disk temporarily
             with open(temp_bid_path, "wb") as f: f.write(b_file.getbuffer())
             
             with st.spinner(f"Analyzing {bidder_name}..."):
-                # Call the AI Engine
                 result_str = evaluate_bidder_against_rules("temp_tender.pdf", temp_bid_path)
                 eval_results = json.loads(result_str).get('evaluation_results', [])
+                time.sleep(2) # Protect API limits
+                if os.path.exists(temp_bid_path): os.remove(temp_bid_path)
                 
-                # Protect the free tier limit: pause for 2 seconds between documents
-                time.sleep(2)
-                
-                # --- NEW: Cleanup the temporary bidder file from the hard drive ---
-                if os.path.exists(temp_bid_path):
-                    os.remove(temp_bid_path)
-                
-                # Calculate scores
                 total_score = sum(r.get('score', 0) for r in eval_results)
                 total_rules = len(eval_results)
                 max_score = total_rules * 5
@@ -75,18 +63,33 @@ if tender_file and len(st.session_state['bidder_list']) > 0:
                     "Bidder": bidder_name,
                     "Total Rules": total_rules,
                     "Total Score": f"{total_score} / {max_score}",
-                    "Raw Score": total_score, 
-                    "Max Score": max_score,
-                    "Details": eval_results
+                    "Raw Score": total_score, "Max Score": max_score, "Details": eval_results
                 })
         
-        # --- NEW: Cleanup the temporary tender file after all bidders are processed ---
-        if os.path.exists("temp_tender.pdf"):
-            os.remove("temp_tender.pdf")
+        if os.path.exists("temp_tender.pdf"): os.remove("temp_tender.pdf")
+        st.session_state['leaderboard'] = sorted(all_bidders_data, key=lambda x: x["Raw Score"], reverse=True)
+
+# --- ONE-CLICK DEMO FOR JUDGES ---
+st.sidebar.markdown("---")
+st.sidebar.header("🧪 Quick Demo")
+if st.sidebar.button("🚀 Run One-Click Demo", type="primary"):
+    if not os.path.exists("sample_tender.pdf") or not os.path.exists("sample_bid.pdf"):
+        st.sidebar.error("Demo files missing! Ensure 'sample_tender.pdf' and 'sample_bid.pdf' are in your project folder.")
+    else:
+        with st.spinner("Analyzing Demo Files with Groq AI..."):
+            result_str = evaluate_bidder_against_rules("sample_tender.pdf", "sample_bid.pdf")
+            eval_results = json.loads(result_str).get('evaluation_results', [])
             
-        # Sort by highest score for the leaderboard
-        all_bidders_data = sorted(all_bidders_data, key=lambda x: x["Raw Score"], reverse=True)
-        st.session_state['leaderboard'] = all_bidders_data
+            total_score = sum(r.get('score', 0) for r in eval_results)
+            total_rules = len(eval_results)
+            max_score = total_rules * 5
+            
+            st.session_state['leaderboard'] = [{
+                "Bidder": "Tech-Nova Solutions (Demo)",
+                "Total Rules": total_rules,
+                "Total Score": f"{total_score} / {max_score}",
+                "Raw Score": total_score, "Max Score": max_score, "Details": eval_results
+            }]
 
 # --- MAIN DASHBOARD AREA ---
 if 'leaderboard' in st.session_state:
@@ -96,23 +99,17 @@ if 'leaderboard' in st.session_state:
     sample_rules_count = st.session_state['leaderboard'][0]['Total Rules']
     sample_max_score = st.session_state['leaderboard'][0]['Max Score']
     
-    # --- INTERACTIVE MATH EXPANDER ---
     with st.expander(f"🧮 **How is this scored? (Maximum Score: {sample_max_score} Points)**", expanded=False):
         st.write(f"The AI automatically extracted **{sample_rules_count} mandatory specifications** from the Tender document. Each specification is graded on a strict 1 to 5 scale.")
         st.markdown("---")
-        
         sample_rules = [r.get('rule_name', 'Unnamed Rule') for r in st.session_state['leaderboard'][0]['Details']]
         col1, col2 = st.columns(2)
         for idx, rule in enumerate(sample_rules):
-            if idx % 2 == 0:
-                col1.markdown(f"- **{rule}** *(Max 5 pts)*")
-            else:
-                col2.markdown(f"- **{rule}** *(Max 5 pts)*")
-                
+            if idx % 2 == 0: col1.markdown(f"- **{rule}** *(Max 5 pts)*")
+            else: col2.markdown(f"- **{rule}** *(Max 5 pts)*")
         st.markdown("---")
         st.markdown(f"**Total Potential Score = {sample_rules_count} rules × 5 points = {sample_max_score} points.**")
     
-    # --- THE LEADERBOARD TABLE ---
     ranking_data = []
     for rank, bidder in enumerate(st.session_state['leaderboard']):
         row = {"Rank": rank + 1, "Bidder Name": bidder["Bidder"], "Total Score": bidder["Total Score"]}
@@ -123,42 +120,26 @@ if 'leaderboard' in st.session_state:
     df = pd.DataFrame(ranking_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
     
-    # --- SCORING RUBRICS ---
     st.markdown("### ℹ️ Evaluation & Grading Rubrics")
     col1, col2 = st.columns(2)
-    
     with col1:
         st.markdown("**Individual Rule Scoring (1-5)**")
         rubric_df = pd.DataFrame({
             "Score": ["5", "4", "3", "2", "1"],
-            "Meaning": [
-                "Exceeded requirement flawlessly",
-                "Passed with standard compliance",
-                "Met minimum requirements / Flagged for review",
-                "Failed partially / Missing minor elements",
-                "Failed completely / Non-compliant"
-            ]
+            "Meaning": ["Exceeded requirement flawlessly", "Passed with standard compliance", "Met minimum requirements / Flagged for review", "Failed partially / Missing minor elements", "Failed completely / Non-compliant"]
         })
         st.table(rubric_df)
-        
     with col2:
         st.markdown("**Total Score Grading Scale**")
         total_rubric_df = pd.DataFrame({
             "Final Score": ["90% - 100%", "75% - 89%", "60% - 74%", "Below 60%"],
             "Classification": ["🟢 Tier 1: Exceptional", "🟡 Tier 2: Acceptable", "🟠 Tier 3: High Risk", "🔴 Tier 4: Disqualified"],
-            "Recommended Action": [
-                "Auto-Shortlist",
-                "Proceed with Clarifications",
-                "Manual Review Required",
-                "Reject Bid"
-            ]
+            "Recommended Action": ["Auto-Shortlist", "Proceed with Clarifications", "Manual Review Required", "Reject Bid"]
         })
         st.table(total_rubric_df)
     
     st.markdown("---")
     st.header("📄 Detailed Bidder Breakdowns")
-    
-    # --- BIDDER TABS ---
     tabs = st.tabs([b["Bidder"] for b in st.session_state['leaderboard']])
     for i, tab in enumerate(tabs):
         with tab:
