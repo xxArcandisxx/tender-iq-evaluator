@@ -14,20 +14,20 @@ st.markdown("Automated multi-bidder ranking and compliance scoring.")
 st.sidebar.header("1. Upload Documents")
 tender_file = st.sidebar.file_uploader("Upload Tender Document (Rules)", type="pdf", key="tender")
 
-# 1. Initialize a memory bank for our bidder files
+# Initialize a memory bank for our bidder files
 if 'bidder_list' not in st.session_state:
     st.session_state['bidder_list'] = []
 
-# 2. The Uploader
+# The Uploader
 new_bidders = st.sidebar.file_uploader("Upload Bidder Submissions", type="pdf", accept_multiple_files=True, key="bidders")
 
-# 3. Add new files to memory without duplicates
+# Add new files to memory without duplicates
 if new_bidders:
     for file in new_bidders:
         if file.name not in [f.name for f in st.session_state['bidder_list']]:
             st.session_state['bidder_list'].append(file)
 
-# 4. Show the user what they have accumulated
+# Show the user what they have accumulated
 if st.session_state['bidder_list']:
     st.sidebar.markdown("**📄 Accumulated Bidders:**")
     for f in st.session_state['bidder_list']:
@@ -68,6 +68,7 @@ if tender_file and len(st.session_state['bidder_list']) > 0:
         
         if os.path.exists("temp_tender.pdf"): os.remove("temp_tender.pdf")
         st.session_state['leaderboard'] = sorted(all_bidders_data, key=lambda x: x["Raw Score"], reverse=True)
+        st.session_state['is_demo'] = False  # Tells UI this is a real upload
 
 # --- ONE-CLICK DEMO FOR JUDGES ---
 st.sidebar.markdown("---")
@@ -90,10 +91,41 @@ if st.sidebar.button("🚀 Run One-Click Demo", type="primary"):
                 "Total Score": f"{total_score} / {max_score}",
                 "Raw Score": total_score, "Max Score": max_score, "Details": eval_results
             }]
+            st.session_state['is_demo'] = True  # Tells UI to show the download buttons
 
 # --- MAIN DASHBOARD AREA ---
 if 'leaderboard' in st.session_state:
     st.markdown("---")
+    
+    # --- BULLETPROOF DEMO FILE DOWNLOADER ---
+    if st.session_state.get('is_demo', False):
+        st.header("📄 Demo Documents")
+        st.info("You are viewing the One-Click Demo. Download the exact files the AI just processed below to verify its reasoning.", icon="🔍")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            with open("sample_tender.pdf", "rb") as pdf_file:
+                st.download_button(
+                    label="⬇️ Download Sample Tender (Rules)",
+                    data=pdf_file,
+                    file_name="sample_tender.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+                
+        with col2:
+            with open("sample_bid.pdf", "rb") as pdf_file:
+                st.download_button(
+                    label="⬇️ Download Sample Bidder (Submission)",
+                    data=pdf_file,
+                    file_name="sample_bid.pdf",
+                    mime="application/pdf",
+                    use_container_width=True
+                )
+            
+        st.markdown("---")
+
     st.header("🏆 Multi-Bidder Leaderboard")
     
     sample_rules_count = st.session_state['leaderboard'][0]['Total Rules']
