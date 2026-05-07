@@ -1,73 +1,44 @@
 import fitz  # PyMuPDF
-import numpy as np
-import cv2
 import easyocr
+import cv2
+import numpy as np
+import warnings
 
-# Initialize the EasyOCR engine (gpu=False ensures it doesn't crash on Streamlit Cloud later)
-ocr_engine = easyocr.Reader(['en'], gpu=False)
+# Suppress annoying easyocr CPU warnings in the terminal
+warnings.filterwarnings("ignore", category=UserWarning)
 
-def extract_text_with_coordinates(pdf_path):
+# Initialize EasyOCR globally (CPU mode for Streamlit Cloud compatibility)
+reader = easyocr.Reader(['en'], gpu=False, verbose=False)
+
+def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
-    extracted_data = []
+    full_text = ""
 
     for page_num in range(len(doc)):
         page = doc.load_page(page_num)
-        
-        # Calculate our "Safe Zones" to strip headers and footers
-        page_height = page.rect.height
-        top_margin = page_height * 0.08
-        bottom_margin = page_height * 0.92
-        
-        # Try normal text extraction first (Fast Path)
-        raw_text = page.get_text("text").strip()
-        
-        if raw_text:
-            # It's a normal, digital PDF!
-            blocks = page.get_text("blocks")
-            for b in blocks:
-                x0, y0, x1, y1, text, block_no, block_type = b
-                if block_type == 0:
-                    text_content = text.strip()
-                    if text_content and y0 > top_margin and y1 < bottom_margin:
-                        extracted_data.append({
-                            "page": page_num + 1,
-                            "text": text_content,
-                            "bbox": [x0, y0, x1, y1]
-                        })
+        # Attempt to read native digital text first (super fast)
+        text = page.get_text("text")
+
+        if text.strip():
+            full_text += text + "\n"
         else:
-            # SCANNED PDF DETECTED! (Slow Path: EasyOCR)
-            print(f"Page {page_num + 1} appears to be scanned. Booting up EasyOCR...")
-            
-            # 1. Take a high-res screenshot
-            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+            # If empty, it's a scanned image. Boot up EasyOCR.
+            pix = page.get_pixmap(dpi=150) # 150 DPI is a good balance of speed and clarity
             img_data = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)
-            
-            # 2. Convert to standard RGB
-            if pix.n == 4: 
-                img_data = cv2.cvtColor(img_data, cv2.COLOR_RGBA2RGB)
-            elif pix.n == 1:
-                img_data = cv2.cvtColor(img_data, cv2.COLOR_GRAY2RGB)
-                
-            # 3. Read the text with EasyOCR
-            result = ocr_engine.readtext(img_data)
-            
-            for line in result:
-                coords = line[0]  # EasyOCR gives 4 corner coordinates
-                text_content = line[1]
-                
-                # Get the Y coordinate of the top-left corner
-                y0 = coords[0][1] / 2 # Divide by 2 because of our 2x zoom earlier
-                
-                # Apply our header/footer filter
-                if text_content and y0 > top_margin and y0 < bottom_margin:
-                    extracted_data.append({
-                        "page": page_num + 1,
-                        "text": text_content,
-                        "bbox": "OCR_Generated"
-                    })
 
-    return extracted_data
+            # Convert to Grayscale
+            if pix.n == 4:
+                img_gray = cv2.cvtColor(img_data, cv2.COLOR_RGBA2GRAY)
+            else:
+                img_gray = cv2.cvtColor(img_data, cv2.COLOR_RGB2GRAY)
 
-if __name__ == "__main__":
-    test_data = extract_text_with_coordinates("sample_bid.pdf")
-    print(f"Extracted {len(test_data)} blocks of text!")
+            # MAGIC CONTRAST BOOSTER: Forces pure white background and pure black text
+            _, img_thresh = cv2.threshold(img_gray, 150, 255, cv2.THRESH_BINARY)
+
+            # Read text with EasyOCR
+            results = reader.readtext(img_thresh)
+            for (bbox, text, prob) in results:
+                full_text += text + " "
+            full_text += "\n"
+
+    return full_text

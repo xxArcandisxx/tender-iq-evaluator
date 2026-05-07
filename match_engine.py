@@ -1,61 +1,60 @@
 import os
 import json
-from dotenv import load_dotenv
 from groq import Groq
-from ocr_pipeline import extract_text_with_coordinates
-from evaluator_engine import extract_verifiable_rules
+from dotenv import load_dotenv
+from ocr_pipeline import extract_text_from_pdf
 
+# Load the environment variables from your .env file
 load_dotenv()
+
+# Initialize Groq client
 client = Groq(api_key=os.environ.get("GROQ_API_KEY"))
 
-def evaluate_bidder_against_rules(tender_pdf_path, bidder_pdf_path):
-    print("1. Extracting rules from Tender Document...")
-    tender_rules_json = extract_verifiable_rules(tender_pdf_path)
-    
-    print("\n2. Extracting text from Bidder Submission...")
-    bidder_blocks = extract_text_with_coordinates(bidder_pdf_path)
-    
-    print("\n3. Cross-referencing Bidder data against Tender rules using Groq AI...")
-    
+def evaluate_bidder_against_rules(tender_path, bidder_path):
+    # Extract text from both documents using our custom pipeline
+    tender_text = extract_text_from_pdf(tender_path)
+    bidder_text = extract_text_from_pdf(bidder_path)
+
     prompt = f"""
-    You are an expert procurement auditor. Your job is to strictly evaluate a Bidder's submission against the Tender Rules.
-    
-    TENDER RULES (JSON):
-    {tender_rules_json}
-    
-    BIDDER DOCUMENT BLOCKS (JSON):
-    {json.dumps(bidder_blocks)}
-    
-    Instructions:
-    Compare the Bidder Document against EVERY rule in the Tender Rules.
-    For each rule, determine if the bidder Passed, Failed, or needs to be Flagged.
-    
-    You MUST output valid JSON only. Output a JSON object with a key "evaluation_results" containing an array. 
-    Each object in the array must have:
-    - "rule_name": the name of the rule
-    - "tender_requirement": what the tender asked for
-    - "bidder_submission": what the bidder actually provided (or "Not found")
-    - "status": "Pass", "Fail", or "Flagged"
-    - "score": An integer from 1 to 5. (1 = Failed completely, 3 = Met minimum/Flagged, 5 = Exceeded requirement flawlessly).
-    - "reasoning": A one-sentence explanation of why they passed/failed
+    You are an expert government procurement auditor. You are evaluating a Bidder's submission against the Master Tender Rules.
+
+    TENDER RULES:
+    {tender_text}
+
+    BIDDER DOCUMENT:
+    {bidder_text}
+
+    INSTRUCTIONS:
+    1. Extract all mandatory specifications or rules from the TENDER RULES.
+    2. Compare the BIDDER DOCUMENT against EVERY rule.
+    3. Output a STRICT JSON object containing an "evaluation_results" array.
+    4. CRITICAL: You MUST provide a detailed "reasoning" paragraph for EVERY SINGLE RULE. Do not leave any reasoning blank.
+
+    JSON OUTPUT FORMAT:
+    {{
+        "evaluation_results": [
+            {{
+                "rule_name": "Brief Title of the Rule",
+                "tender_requirement": "What did the tender strictly ask for?",
+                "bidder_submission": "Summarize what the bidder provided for this specific rule.",
+                "status": "Pass" or "Fail" or "Flagged",
+                "score": <integer from 1 to 5>,
+                "reasoning": "MANDATORY: Step-by-step logical explanation of exactly why this score was given.",
+                "exact_quote": "The verbatim sentence extracted from the bidder document."
+            }}
+        ]
+    }}
     """
 
-    chat_completion = client.chat.completions.create(
+    # Force Groq to return guaranteed JSON using JSON mode
+    response = client.chat.completions.create(
+        model="llama-3.1-8b-instant",
         messages=[
-            {"role": "system", "content": "You output JSON only."},
+            {"role": "system", "content": "You are a strict procurement AI that outputs ONLY valid JSON."},
             {"role": "user", "content": prompt}
         ],
-        model="llama-3.1-8b-instant",
-        temperature=0, 
-        response_format={"type": "json_object"} 
+        response_format={"type": "json_object"},
+        temperature=0.1 # Low temperature for analytical strictness
     )
 
-    return chat_completion.choices[0].message.content
-
-if __name__ == "__main__":
-    result = evaluate_bidder_against_rules("sample_tender.pdf", "sample_bid.pdf")
-    parsed_json = json.loads(result)
-    print("\n\n=======================================================")
-    print("              FINAL BIDDER EVALUATION REPORT             ")
-    print("=======================================================")
-    print(json.dumps(parsed_json, indent=4))
+    return response.choices[0].message.content

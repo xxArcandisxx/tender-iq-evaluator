@@ -14,20 +14,16 @@ st.markdown("Automated multi-bidder ranking and compliance scoring.")
 st.sidebar.header("1. Upload Documents")
 tender_file = st.sidebar.file_uploader("Upload Tender Document (Rules)", type="pdf", key="tender")
 
-# Initialize a memory bank for our bidder files
 if 'bidder_list' not in st.session_state:
     st.session_state['bidder_list'] = []
 
-# The Uploader
 new_bidders = st.sidebar.file_uploader("Upload Bidder Submissions", type="pdf", accept_multiple_files=True, key="bidders")
 
-# Add new files to memory without duplicates
 if new_bidders:
     for file in new_bidders:
         if file.name not in [f.name for f in st.session_state['bidder_list']]:
             st.session_state['bidder_list'].append(file)
 
-# Show the user what they have accumulated
 if st.session_state['bidder_list']:
     st.sidebar.markdown("**📄 Accumulated Bidders:**")
     for f in st.session_state['bidder_list']:
@@ -51,7 +47,12 @@ if tender_file and len(st.session_state['bidder_list']) > 0:
             
             with st.spinner(f"Analyzing {bidder_name}..."):
                 result_str = evaluate_bidder_against_rules("temp_tender.pdf", temp_bid_path)
-                eval_results = json.loads(result_str).get('evaluation_results', [])
+                try:
+                    eval_results = json.loads(result_str).get('evaluation_results', [])
+                except json.JSONDecodeError:
+                    st.error("AI returned malformed data. Please try again.")
+                    eval_results = []
+                
                 time.sleep(2) # Protect API limits
                 if os.path.exists(temp_bid_path): os.remove(temp_bid_path)
                 
@@ -68,7 +69,7 @@ if tender_file and len(st.session_state['bidder_list']) > 0:
         
         if os.path.exists("temp_tender.pdf"): os.remove("temp_tender.pdf")
         st.session_state['leaderboard'] = sorted(all_bidders_data, key=lambda x: x["Raw Score"], reverse=True)
-        st.session_state['is_demo'] = False  # Tells UI this is a real upload
+        st.session_state['is_demo'] = False
 
 # --- ONE-CLICK DEMO FOR JUDGES ---
 st.sidebar.markdown("---")
@@ -77,53 +78,44 @@ if st.sidebar.button("🚀 Run One-Click Demo", type="primary"):
     if not os.path.exists("sample_tender.pdf") or not os.path.exists("sample_bid.pdf"):
         st.sidebar.error("Demo files missing! Ensure 'sample_tender.pdf' and 'sample_bid.pdf' are in your project folder.")
     else:
-        with st.spinner("Analyzing Demo Files with Groq AI..."):
+        with st.spinner("Executing Live AI Evaluation on local files..."):
             result_str = evaluate_bidder_against_rules("sample_tender.pdf", "sample_bid.pdf")
-            eval_results = json.loads(result_str).get('evaluation_results', [])
+            try:
+                eval_results = json.loads(result_str).get('evaluation_results', [])
+                if not eval_results:
+                    st.warning("⚠️ The AI processed the file but found no rules. The PDF might be too large or empty.")
+            except json.JSONDecodeError:
+                st.error("⚠️ AI returned malformed data. The API might have timed out.")
+                eval_results = []
             
             total_score = sum(r.get('score', 0) for r in eval_results)
             total_rules = len(eval_results)
-            max_score = total_rules * 5
+            max_score = total_rules * 5 if total_rules > 0 else 0
             
+            # Use the actual filename instead of a fake company name
             st.session_state['leaderboard'] = [{
-                "Bidder": "Tech-Nova Solutions (Demo)",
+                "Bidder": "sample_bid.pdf", 
                 "Total Rules": total_rules,
                 "Total Score": f"{total_score} / {max_score}",
                 "Raw Score": total_score, "Max Score": max_score, "Details": eval_results
             }]
-            st.session_state['is_demo'] = True  # Tells UI to show the download buttons
+            st.session_state['is_demo'] = True
 
 # --- MAIN DASHBOARD AREA ---
-if 'leaderboard' in st.session_state:
+if 'leaderboard' in st.session_state and len(st.session_state['leaderboard']) > 0:
     st.markdown("---")
     
-    # --- BULLETPROOF DEMO FILE DOWNLOADER ---
+    # --- DEMO FILE DOWNLOADER ---
     if st.session_state.get('is_demo', False):
         st.header("📄 Demo Documents")
-        st.info("You are viewing the One-Click Demo. Download the exact files the AI just processed below to verify its reasoning.", icon="🔍")
-        
+        st.info("You are viewing the One-Click Demo. Download the exact files the AI just processed below to verify the results.", icon="🔍")
         col1, col2 = st.columns(2)
-        
         with col1:
             with open("sample_tender.pdf", "rb") as pdf_file:
-                st.download_button(
-                    label="⬇️ Download Sample Tender (Rules)",
-                    data=pdf_file,
-                    file_name="sample_tender.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-                
+                st.download_button("⬇️ Download sample_tender.pdf (Rules)", data=pdf_file, file_name="sample_tender.pdf", mime="application/pdf", use_container_width=True)
         with col2:
             with open("sample_bid.pdf", "rb") as pdf_file:
-                st.download_button(
-                    label="⬇️ Download Sample Bidder (Submission)",
-                    data=pdf_file,
-                    file_name="sample_bid.pdf",
-                    mime="application/pdf",
-                    use_container_width=True
-                )
-            
+                st.download_button("⬇️ Download sample_bid.pdf (Submission)", data=pdf_file, file_name="sample_bid.pdf", mime="application/pdf", use_container_width=True)
         st.markdown("---")
 
     st.header("🏆 Multi-Bidder Leaderboard")
@@ -132,43 +124,23 @@ if 'leaderboard' in st.session_state:
     sample_max_score = st.session_state['leaderboard'][0]['Max Score']
     
     with st.expander(f"🧮 **How is this scored? (Maximum Score: {sample_max_score} Points)**", expanded=False):
-        st.write(f"The AI automatically extracted **{sample_rules_count} mandatory specifications** from the Tender document. Each specification is graded on a strict 1 to 5 scale.")
+        st.write(f"The AI automatically extracted **{sample_rules_count} mandatory specifications** from the Tender document.")
         st.markdown("---")
         sample_rules = [r.get('rule_name', 'Unnamed Rule') for r in st.session_state['leaderboard'][0]['Details']]
         col1, col2 = st.columns(2)
         for idx, rule in enumerate(sample_rules):
             if idx % 2 == 0: col1.markdown(f"- **{rule}** *(Max 5 pts)*")
             else: col2.markdown(f"- **{rule}** *(Max 5 pts)*")
-        st.markdown("---")
-        st.markdown(f"**Total Potential Score = {sample_rules_count} rules × 5 points = {sample_max_score} points.**")
     
     ranking_data = []
     for rank, bidder in enumerate(st.session_state['leaderboard']):
         row = {"Rank": rank + 1, "Bidder Name": bidder["Bidder"], "Total Score": bidder["Total Score"]}
         for rule in bidder["Details"]:
-            row[rule["rule_name"]] = f"{rule.get('score', 0)}/5"
+            row[rule.get("rule_name", "Rule")] = f"{rule.get('score', 0)}/5"
         ranking_data.append(row)
         
     df = pd.DataFrame(ranking_data)
     st.dataframe(df, use_container_width=True, hide_index=True)
-    
-    st.markdown("### ℹ️ Evaluation & Grading Rubrics")
-    col1, col2 = st.columns(2)
-    with col1:
-        st.markdown("**Individual Rule Scoring (1-5)**")
-        rubric_df = pd.DataFrame({
-            "Score": ["5", "4", "3", "2", "1"],
-            "Meaning": ["Exceeded requirement flawlessly", "Passed with standard compliance", "Met minimum requirements / Flagged for review", "Failed partially / Missing minor elements", "Failed completely / Non-compliant"]
-        })
-        st.table(rubric_df)
-    with col2:
-        st.markdown("**Total Score Grading Scale**")
-        total_rubric_df = pd.DataFrame({
-            "Final Score": ["90% - 100%", "75% - 89%", "60% - 74%", "Below 60%"],
-            "Classification": ["🟢 Tier 1: Exceptional", "🟡 Tier 2: Acceptable", "🟠 Tier 3: High Risk", "🔴 Tier 4: Disqualified"],
-            "Recommended Action": ["Auto-Shortlist", "Proceed with Clarifications", "Manual Review Required", "Reject Bid"]
-        })
-        st.table(total_rubric_df)
     
     st.markdown("---")
     st.header("📄 Detailed Bidder Breakdowns")
@@ -177,7 +149,7 @@ if 'leaderboard' in st.session_state:
         with tab:
             bidder = st.session_state['leaderboard'][i]
             st.subheader(f"Evaluation for {bidder['Bidder']}")
-            st.markdown(f"> **Final Score: {bidder['Total Score']}** *(Sum of {bidder['Total Rules']} specifications × 5 points max each)*")
+            st.markdown(f"> **Final Score: {bidder['Total Score']}**")
             st.write("") 
             
             for result in bidder["Details"]:
@@ -189,6 +161,12 @@ if 'leaderboard' in st.session_state:
                 else: box = st.warning; icon = "⚠️"
                     
                 with box(f"{icon} **{result.get('rule_name', 'Rule')}** (Score: {score}/5)"):
-                    st.write(f"**Tender Requires:** {result.get('tender_requirement', 'N/A')}")
-                    st.write(f"**Bidder Provided:** {result.get('bidder_submission', 'N/A')}")
-                    st.markdown(f"**AI Reasoning:** *{result.get('reasoning', 'N/A')}*")
+                    # The 3-Part AI Proof
+                    st.write(f"**🎯 Tender Requires:** {result.get('tender_requirement', 'N/A')}")
+                    st.write(f"**📝 Bidder Provided:** {result.get('bidder_submission', 'Not explicitly mentioned in document.')}")
+                    st.markdown(f"**🧠 AI Reasoning:** *{result.get('reasoning', 'No reasoning provided.')}*")
+                    
+                    # --- EVIDENCE SNAPSHOT ---
+                    quote = result.get('exact_quote', '')
+                    if quote and quote.lower() not in ["n/a", "not found", "not found in document"]:
+                        st.info(f"🔎 **Evidence Extracted from Document:** \n\n> *\"{quote}\"*")
